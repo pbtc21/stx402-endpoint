@@ -1,0 +1,22 @@
+{
+  "name": "stx402-endpoint",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "wrangler": "^3.0.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@stacks/transactions": "^7.3.1",
+    "hono": "^4.11.3"
+  }
+}
