@@ -11,6 +11,16 @@ const CONTRACT = {
 
 const HIRO_API = 'https://api.hiro.so';
 
+// Pyth Oracle configuration
+const PYTH = {
+  oracle: 'SP1CGXWEAMG6P6FT04W66NVGJ7PQWMDAC19R7PJ0Y.pyth-oracle-v4',
+  storage: 'SP1CGXWEAMG6P6FT04W66NVGJ7PQWMDAC19R7PJ0Y.pyth-storage-v4',
+  feeds: {
+    BTC: '0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43',
+    STX: '0xec7a775f46379b5e943c3526b1c8d54cd49749176b0b98e02dde68d1bd335c17', // STX-USD
+  },
+};
+
 type Bindings = {
   OPENAI_API_KEY?: string;
 };
@@ -93,6 +103,76 @@ async function verifyPayment(txid: string): Promise<{ valid: boolean; error?: st
     return { valid: true, caller: tx.sender_address };
   } catch (error) {
     return { valid: false, error: `Verification failed: ${error}` };
+  }
+}
+
+// Parse Clarity hex value to BigInt (handles both int and uint)
+function parseClarityInt(hex: string): bigint {
+  // Remove leading zeros for parsing
+  const value = BigInt('0x' + hex);
+  return value;
+}
+
+// Fetch price from Pyth oracle (on-chain verified via storage contract)
+async function getPythPrice(token: 'BTC' | 'STX'): Promise<{ price: number | null; expo: number; timestamp: number; source: string } | null> {
+  const feedId = PYTH.feeds[token];
+  if (!feedId) return null;
+
+  try {
+    const [storageAddress, storageName] = PYTH.storage.split('.');
+    const feedIdHex = feedId.slice(2); // Remove 0x prefix
+
+    // Call pyth-storage-v4.get-price directly (simpler interface)
+    // Clarity buffer encoding: 0x02 (buffer type) + uint32 length + data
+    const clarityBuffer = `0x0200000020${feedIdHex}`;
+
+    const response = await fetch(
+      `${HIRO_API}/v2/contracts/call-read/${storageAddress}/${storageName}/get-price`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sender: storageAddress,
+          arguments: [clarityBuffer],
+        }),
+      }
+    );
+
+    if (!response.ok) return null;
+
+    const data = await response.json() as any;
+
+    if (data.okay && data.result) {
+      // Parse Clarity tuple response
+      // Look for price field in the hex - format: "price" followed by int value
+      const resultHex = data.result.slice(2); // Remove 0x
+
+      // Find "price" field (057072696365 = length 5 + "price" in hex)
+      const priceMarker = '057072696365'; // "price" as clarity string
+      const priceIdx = resultHex.indexOf(priceMarker);
+
+      if (priceIdx !== -1) {
+        // After field name, next byte is type (00 = int), then 16 bytes of value
+        const valueStart = priceIdx + priceMarker.length + 2; // +2 for type byte
+        const valueHex = resultHex.slice(valueStart, valueStart + 32);
+        const priceRaw = parseClarityInt(valueHex);
+
+        // Pyth uses expo -8, so divide by 10^8
+        const price = Number(priceRaw) / 100_000_000;
+
+        return {
+          price,
+          expo: -8,
+          timestamp: Date.now(),
+          source: 'pyth',
+        };
+      }
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Pyth fetch error:', error);
+    return null;
   }
 }
 
@@ -189,8 +269,11 @@ app.post('/sentiment', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const token = (body.token || 'STX').toUpperCase();
 
-  // Fetch market data for context
-  const [priceData, fearGreedData] = await Promise.all([
+  // Fetch market data for context (Pyth on-chain + CoinGecko off-chain)
+  const [pythData, priceData, fearGreedData] = await Promise.all([
+    // Try Pyth oracle for on-chain verified price
+    (token === 'BTC' || token === 'STX') ? getPythPrice(token as 'BTC' | 'STX') : Promise.resolve(null),
+    // CoinGecko for additional market data
     fetch(`https://api.coingecko.com/api/v3/coins/${token === 'BTC' ? 'bitcoin' : token === 'STX' ? 'blockstack' : 'bitcoin'}?localization=false&tickers=false&community_data=true&developer_data=false`)
       .then(r => r.json())
       .catch(() => null),
@@ -199,7 +282,12 @@ app.post('/sentiment', async (c) => {
       .catch(() => null),
   ]);
 
-  const price = (priceData as any)?.market_data?.current_price?.usd;
+  // Use Pyth price if available, otherwise CoinGecko
+  const pythPrice = pythData?.price;
+  const coingeckoPrice = (priceData as any)?.market_data?.current_price?.usd;
+  const price = pythPrice ?? coingeckoPrice;
+  const priceSource = pythPrice ? 'pyth' : 'coingecko';
+
   const priceChange24h = (priceData as any)?.market_data?.price_change_percentage_24h;
   const priceChange7d = (priceData as any)?.market_data?.price_change_percentage_7d;
   const fearGreed = (fearGreedData as any)?.data?.[0];
@@ -235,6 +323,8 @@ app.post('/sentiment', async (c) => {
         confidence: 0.7,
         analysis: {
           price_usd: price,
+          price_source: priceSource,
+          pyth_available: !!pythPrice,
           change_24h: priceChange24h,
           change_7d: priceChange7d,
           fear_greed_index: fgScore,
@@ -307,6 +397,8 @@ Respond ONLY with valid JSON, no markdown.`;
       summary: aiAnalysis.summary,
       analysis: {
         price_usd: price,
+        price_source: priceSource,
+        pyth_available: !!pythPrice,
         change_24h: priceChange24h,
         change_7d: priceChange7d,
         fear_greed_index: parseInt(fearGreed?.value || '50'),
