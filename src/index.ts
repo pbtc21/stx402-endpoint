@@ -424,36 +424,34 @@ app.get('/stats', async (c) => {
   });
 });
 
-// Aggregated prices endpoint (free) - multiple sources for comparison
-app.get('/prices', async (c) => {
-  const token = (c.req.query('token') || 'BTC').toUpperCase();
+// Token configuration for price sources
+const TOKEN_CONFIG: Record<string, { coingecko: string; binance: string; cryptocompare: string; pyth?: 'BTC' | 'STX' }> = {
+  BTC: { coingecko: 'bitcoin', binance: 'BTCUSDT', cryptocompare: 'BTC', pyth: 'BTC' },
+  STX: { coingecko: 'blockstack', binance: 'STXUSDT', cryptocompare: 'STX', pyth: 'STX' },
+  ETH: { coingecko: 'ethereum', binance: 'ETHUSDT', cryptocompare: 'ETH' },
+  SOL: { coingecko: 'solana', binance: 'SOLUSDT', cryptocompare: 'SOL' },
+};
 
-  // Map tokens to their identifiers across different APIs
-  const tokenMap: Record<string, { coingecko: string; binance: string; cryptocompare: string; pyth?: 'BTC' | 'STX' }> = {
-    BTC: { coingecko: 'bitcoin', binance: 'BTCUSDT', cryptocompare: 'BTC', pyth: 'BTC' },
-    STX: { coingecko: 'blockstack', binance: 'STXUSDT', cryptocompare: 'STX', pyth: 'STX' },
-    ETH: { coingecko: 'ethereum', binance: 'ETHUSDT', cryptocompare: 'ETH' },
-    SOL: { coingecko: 'solana', binance: 'SOLUSDT', cryptocompare: 'SOL' },
-  };
-
-  const ids = tokenMap[token];
-  if (!ids) {
-    return c.json({
-      error: 'Unsupported token',
-      supported: Object.keys(tokenMap)
-    }, 400);
-  }
+// Fetch aggregated prices for a token
+async function fetchTokenPrices(token: string) {
+  const ids = TOKEN_CONFIG[token];
+  if (!ids) return null;
 
   // Fetch from all sources in parallel
   const sources = await Promise.all([
-    // Pyth Oracle (on-chain, Stacks)
-    ids.pyth ? getPythPrice(ids.pyth).then(data => ({
-      source: 'pyth',
-      type: 'on-chain oracle',
-      price: data?.price ?? null,
-      timestamp: data?.timestamp ?? null,
-      error: data ? null : 'No Pyth feed available',
-    })) : Promise.resolve(null),
+    // Pyth Oracle (on-chain, Stacks) - with timeout
+    ids.pyth ? Promise.race([
+      getPythPrice(ids.pyth).then(data => ({
+        source: 'pyth',
+        type: 'on-chain oracle',
+        price: data?.price ?? null,
+        timestamp: data?.timestamp ?? null,
+        error: data ? null : 'No Pyth feed available',
+      })),
+      new Promise<{ source: string; type: string; price: null; error: string }>(resolve =>
+        setTimeout(() => resolve({ source: 'pyth', type: 'on-chain oracle', price: null, error: 'Timeout' }), 5000)
+      ),
+    ]) : Promise.resolve(null),
 
     // CoinGecko
     fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${ids.coingecko}&vs_currencies=usd&include_24hr_change=true&include_last_updated_at=true`)
@@ -520,7 +518,6 @@ app.get('/prices', async (c) => {
     const max = Math.max(...prices);
     const spread = ((max - min) / avg) * 100;
 
-    // Find median
     const sorted = [...prices].sort((a, b) => a - b);
     const median = sorted.length % 2 === 0
       ? (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2
@@ -537,7 +534,7 @@ app.get('/prices', async (c) => {
     };
   }
 
-  return c.json({
+  return {
     token,
     timestamp: new Date().toISOString(),
     stats,
@@ -548,20 +545,149 @@ app.get('/prices', async (c) => {
         ? parseFloat((((s.price as number) - stats.average) / stats.average * 100).toFixed(4))
         : null,
     })),
-  });
+  };
+}
+
+// Aggregated prices endpoint (free) - multiple sources for comparison
+app.get('/prices', async (c) => {
+  const token = (c.req.query('token') || 'BTC').toUpperCase();
+
+  if (!TOKEN_CONFIG[token]) {
+    return c.json({
+      error: 'Unsupported token',
+      supported: Object.keys(TOKEN_CONFIG)
+    }, 400);
+  }
+
+  const result = await fetchTokenPrices(token);
+  return c.json(result);
 });
 
 // Get all prices for multiple tokens at once
 app.get('/prices/all', async (c) => {
-  const tokens = ['BTC', 'STX', 'ETH', 'SOL'];
+  const tokens = Object.keys(TOKEN_CONFIG);
 
-  // Fetch all tokens in parallel
-  const results = await Promise.all(
-    tokens.map(async (token) => {
-      const response = await app.request(`/prices?token=${token}`);
-      return response.json();
-    })
-  );
+  // Pre-fetch Pyth prices sequentially to avoid overwhelming Hiro API
+  const pythPrices: Record<string, Awaited<ReturnType<typeof getPythPrice>>> = {};
+  for (const token of ['BTC', 'STX'] as const) {
+    pythPrices[token] = await getPythPrice(token).catch(() => null);
+  }
+
+  // Fetch all tokens in parallel, but use cached Pyth prices
+  const results = await Promise.all(tokens.map(async (token) => {
+    const ids = TOKEN_CONFIG[token];
+    if (!ids) return null;
+
+    // Fetch non-Pyth sources in parallel
+    const sources = await Promise.all([
+      // Use pre-fetched Pyth price if available
+      ids.pyth ? Promise.resolve(pythPrices[ids.pyth] ? {
+        source: 'pyth',
+        type: 'on-chain oracle',
+        price: pythPrices[ids.pyth]?.price ?? null,
+        timestamp: pythPrices[ids.pyth]?.timestamp ?? null,
+        error: pythPrices[ids.pyth] ? null : 'No Pyth feed available',
+      } : {
+        source: 'pyth',
+        type: 'on-chain oracle',
+        price: null,
+        timestamp: null,
+        error: 'No Pyth feed available',
+      }) : Promise.resolve(null),
+
+      // CoinGecko
+      fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${ids.coingecko}&vs_currencies=usd&include_24hr_change=true&include_last_updated_at=true`)
+        .then(r => r.json())
+        .then((data: any) => ({
+          source: 'coingecko',
+          type: 'aggregator',
+          price: data[ids.coingecko]?.usd ?? null,
+          change_24h: data[ids.coingecko]?.usd_24h_change ?? null,
+          timestamp: data[ids.coingecko]?.last_updated_at ? data[ids.coingecko].last_updated_at * 1000 : null,
+          error: null,
+        }))
+        .catch(e => ({ source: 'coingecko', type: 'aggregator', price: null, error: e.message })),
+
+      // Binance
+      fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${ids.binance}`)
+        .then(r => r.json())
+        .then((data: any) => ({
+          source: 'binance',
+          type: 'exchange',
+          price: data.price ? parseFloat(data.price) : null,
+          timestamp: Date.now(),
+          error: data.code ? data.msg : null,
+        }))
+        .catch(e => ({ source: 'binance', type: 'exchange', price: null, error: e.message })),
+
+      // CryptoCompare
+      fetch(`https://min-api.cryptocompare.com/data/price?fsym=${ids.cryptocompare}&tsyms=USD`)
+        .then(r => r.json())
+        .then((data: any) => ({
+          source: 'cryptocompare',
+          type: 'aggregator',
+          price: data.USD ?? null,
+          timestamp: Date.now(),
+          error: data.Message || null,
+        }))
+        .catch(e => ({ source: 'cryptocompare', type: 'aggregator', price: null, error: e.message })),
+
+      // Kraken
+      fetch(`https://api.kraken.com/0/public/Ticker?pair=${token}USD`)
+        .then(r => r.json())
+        .then((data: any) => {
+          const pair = Object.keys(data.result || {})[0];
+          const price = pair ? parseFloat(data.result[pair]?.c?.[0]) : null;
+          return {
+            source: 'kraken',
+            type: 'exchange',
+            price: price || null,
+            timestamp: Date.now(),
+            error: data.error?.length ? data.error[0] : null,
+          };
+        })
+        .catch(e => ({ source: 'kraken', type: 'exchange', price: null, error: e.message })),
+    ]);
+
+    const validSources = sources.filter((s): s is NonNullable<typeof s> => s !== null);
+    const prices = validSources.filter(s => s.price !== null).map(s => s.price as number);
+
+    let stats = null;
+    if (prices.length > 0) {
+      const avg = prices.reduce((a, b) => a + b, 0) / prices.length;
+      const min = Math.min(...prices);
+      const max = Math.max(...prices);
+      const spread = ((max - min) / avg) * 100;
+
+      const sorted = [...prices].sort((a, b) => a - b);
+      const median = sorted.length % 2 === 0
+        ? (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2
+        : sorted[Math.floor(sorted.length / 2)];
+
+      stats = {
+        average: parseFloat(avg.toFixed(6)),
+        median: parseFloat(median.toFixed(6)),
+        min: parseFloat(min.toFixed(6)),
+        max: parseFloat(max.toFixed(6)),
+        spread_percent: parseFloat(spread.toFixed(4)),
+        sources_available: prices.length,
+        sources_total: validSources.length,
+      };
+    }
+
+    return {
+      token,
+      timestamp: new Date().toISOString(),
+      stats,
+      sources: validSources.map(s => ({
+        ...s,
+        price: s.price !== null ? parseFloat((s.price as number).toFixed(6)) : null,
+        deviation_from_avg: s.price !== null && stats
+          ? parseFloat((((s.price as number) - stats.average) / stats.average * 100).toFixed(4))
+          : null,
+      })),
+    };
+  }));
 
   return c.json({
     timestamp: new Date().toISOString(),
