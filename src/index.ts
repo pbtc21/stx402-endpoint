@@ -26,7 +26,7 @@ app.get('/', (c) => {
     description: 'x402 payment-gated API endpoint on Stacks',
     contract: `${CONTRACT.address}.${CONTRACT.name}`,
     price: `${CONTRACT.price} microSTX (${CONTRACT.price / 1_000_000} STX)`,
-    endpoints: ['/oracle', '/ai'],
+    endpoints: ['/oracle', '/sentiment'],
   });
 });
 
@@ -168,12 +168,12 @@ app.get('/oracle', async (c) => {
   });
 });
 
-// AI endpoint - uses OpenAI for analysis
-app.post('/ai', async (c) => {
+// Sentiment analyzer endpoint
+app.post('/sentiment', async (c) => {
   const paymentTxid = c.req.header('X-Payment');
 
   if (!paymentTxid) {
-    return paymentRequired(c, '/ai');
+    return paymentRequired(c, '/sentiment');
   }
 
   // Verify payment
@@ -187,24 +187,88 @@ app.post('/ai', async (c) => {
 
   // Get request body
   const body = await c.req.json().catch(() => ({}));
-  const prompt = body.prompt || 'What is the current state of the Stacks ecosystem?';
+  const token = (body.token || 'STX').toUpperCase();
+
+  // Fetch market data for context
+  const [priceData, fearGreedData] = await Promise.all([
+    fetch(`https://api.coingecko.com/api/v3/coins/${token === 'BTC' ? 'bitcoin' : token === 'STX' ? 'blockstack' : 'bitcoin'}?localization=false&tickers=false&community_data=true&developer_data=false`)
+      .then(r => r.json())
+      .catch(() => null),
+    fetch('https://api.alternative.me/fng/?limit=1')
+      .then(r => r.json())
+      .catch(() => null),
+  ]);
+
+  const price = (priceData as any)?.market_data?.current_price?.usd;
+  const priceChange24h = (priceData as any)?.market_data?.price_change_percentage_24h;
+  const priceChange7d = (priceData as any)?.market_data?.price_change_percentage_7d;
+  const fearGreed = (fearGreedData as any)?.data?.[0];
 
   // Check for OpenAI key
   const apiKey = c.env?.OPENAI_API_KEY;
+
   if (!apiKey) {
+    // Return algorithmic sentiment without AI
+    const momentum = (priceChange24h || 0) + (priceChange7d || 0) / 2;
+    const fgScore = parseInt(fearGreed?.value || '50');
+
+    let sentiment: 'very_bearish' | 'bearish' | 'neutral' | 'bullish' | 'very_bullish';
+    let score: number;
+
+    if (momentum < -10) { sentiment = 'very_bearish'; score = 15; }
+    else if (momentum < -3) { sentiment = 'bearish'; score = 35; }
+    else if (momentum < 3) { sentiment = 'neutral'; score = 50; }
+    else if (momentum < 10) { sentiment = 'bullish'; score = 65; }
+    else { sentiment = 'very_bullish'; score = 85; }
+
+    // Blend with fear/greed
+    score = Math.round((score + fgScore) / 2);
+
     return c.json({
       success: true,
       paymentVerified: true,
       caller: verification.caller,
       data: {
-        response: `AI analysis requested: "${prompt}"`,
-        note: 'OpenAI not configured - returning mock response',
+        token,
+        sentiment,
+        score,
+        confidence: 0.7,
+        analysis: {
+          price_usd: price,
+          change_24h: priceChange24h,
+          change_7d: priceChange7d,
+          fear_greed_index: fgScore,
+          fear_greed_label: fearGreed?.value_classification,
+        },
+        signals: [
+          priceChange24h > 5 ? '📈 Strong 24h momentum' : priceChange24h < -5 ? '📉 Weak 24h momentum' : '➡️ Stable 24h',
+          priceChange7d > 10 ? '🚀 Weekly uptrend' : priceChange7d < -10 ? '🔻 Weekly downtrend' : '📊 Weekly consolidation',
+          fgScore > 60 ? '😀 Market greed' : fgScore < 40 ? '😰 Market fear' : '😐 Market neutral',
+        ],
+        method: 'algorithmic',
         timestamp: new Date().toISOString(),
       },
     });
   }
 
-  // Call OpenAI
+  // AI-powered sentiment analysis
+  const prompt = `Analyze the current market sentiment for ${token}.
+
+Current data:
+- Price: $${price}
+- 24h change: ${priceChange24h?.toFixed(2)}%
+- 7d change: ${priceChange7d?.toFixed(2)}%
+- Fear & Greed Index: ${fearGreed?.value} (${fearGreed?.value_classification})
+
+Provide a JSON response with:
+1. sentiment: one of "very_bearish", "bearish", "neutral", "bullish", "very_bullish"
+2. score: 0-100 (0 = extreme fear, 100 = extreme greed)
+3. confidence: 0-1
+4. summary: 2-3 sentence analysis
+5. signals: array of 3 key observations
+
+Respond ONLY with valid JSON, no markdown.`;
+
   const aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -214,7 +278,7 @@ app.post('/ai', async (c) => {
     body: JSON.stringify({
       model: 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: 'You are a helpful blockchain analyst specializing in Stacks and Bitcoin.' },
+        { role: 'system', content: 'You are a crypto market sentiment analyst. Always respond with valid JSON only.' },
         { role: 'user', content: prompt },
       ],
       max_tokens: 500,
@@ -222,14 +286,34 @@ app.post('/ai', async (c) => {
   });
 
   const aiData = await aiResponse.json() as any;
+  const aiContent = aiData.choices?.[0]?.message?.content || '{}';
+
+  let aiAnalysis;
+  try {
+    aiAnalysis = JSON.parse(aiContent);
+  } catch {
+    aiAnalysis = { sentiment: 'neutral', score: 50, summary: aiContent };
+  }
 
   return c.json({
     success: true,
     paymentVerified: true,
     caller: verification.caller,
     data: {
-      prompt,
-      response: aiData.choices?.[0]?.message?.content || 'No response',
+      token,
+      sentiment: aiAnalysis.sentiment,
+      score: aiAnalysis.score,
+      confidence: aiAnalysis.confidence || 0.8,
+      summary: aiAnalysis.summary,
+      analysis: {
+        price_usd: price,
+        change_24h: priceChange24h,
+        change_7d: priceChange7d,
+        fear_greed_index: parseInt(fearGreed?.value || '50'),
+        fear_greed_label: fearGreed?.value_classification,
+      },
+      signals: aiAnalysis.signals || [],
+      method: 'ai',
       model: 'gpt-4o-mini',
       timestamp: new Date().toISOString(),
     },
