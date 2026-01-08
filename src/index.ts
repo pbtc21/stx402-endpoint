@@ -29,8 +29,454 @@ const app = new Hono<{ Bindings: Bindings }>();
 
 app.use('*', cors());
 
-// Health check
+// Frontend HTML
+function getFrontendHtml() {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>x402 API | Stacks Payment-Gated Intelligence</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #0a0a0f;
+      --surface: #12121a;
+      --surface-2: #1a1a25;
+      --border: #2a2a3a;
+      --text: #e4e4e7;
+      --text-muted: #71717a;
+      --accent: #8b5cf6;
+      --accent-2: #a78bfa;
+      --green: #22c55e;
+      --orange: #f97316;
+      --blue: #3b82f6;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 3rem 1.5rem;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 4rem;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 0.5rem 1rem;
+      border-radius: 2rem;
+      font-size: 0.85rem;
+      color: var(--accent-2);
+      margin-bottom: 1.5rem;
+    }
+
+    h1 {
+      font-size: 3rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--text) 0%, var(--accent-2) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 1rem;
+    }
+
+    .subtitle {
+      font-size: 1.25rem;
+      color: var(--text-muted);
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1.5rem;
+      margin-bottom: 3rem;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 1rem;
+      padding: 1.5rem;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+
+    .card:hover {
+      border-color: var(--accent);
+      transform: translateY(-2px);
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+
+    .card-icon {
+      width: 40px;
+      height: 40px;
+      background: var(--surface-2);
+      border-radius: 0.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.25rem;
+    }
+
+    .card h3 {
+      font-size: 1.1rem;
+      font-weight: 600;
+    }
+
+    .card p {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      margin-bottom: 1rem;
+    }
+
+    .endpoint {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      background: var(--surface-2);
+      padding: 0.5rem 0.75rem;
+      border-radius: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .method {
+      font-weight: 600;
+      font-size: 0.75rem;
+      padding: 0.2rem 0.5rem;
+      border-radius: 0.25rem;
+    }
+
+    .method.get { background: var(--green); color: #000; }
+    .method.post { background: var(--blue); color: #fff; }
+
+    .price-tag {
+      margin-left: auto;
+      font-size: 0.75rem;
+      color: var(--orange);
+      font-weight: 500;
+    }
+
+    .free-tag {
+      margin-left: auto;
+      font-size: 0.75rem;
+      color: var(--green);
+      font-weight: 500;
+    }
+
+    .section-title {
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin-bottom: 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .demo-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 1rem;
+      padding: 2rem;
+      margin-bottom: 3rem;
+    }
+
+    .demo-controls {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-bottom: 1.5rem;
+    }
+
+    select, button {
+      font-family: inherit;
+      font-size: 0.9rem;
+      padding: 0.75rem 1.25rem;
+      border-radius: 0.5rem;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    button {
+      background: var(--accent);
+      border-color: var(--accent);
+      font-weight: 500;
+    }
+
+    button:hover {
+      background: var(--accent-2);
+      border-color: var(--accent-2);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .response-box {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 0.5rem;
+      padding: 1rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem;
+      max-height: 400px;
+      overflow: auto;
+      white-space: pre-wrap;
+      color: var(--text-muted);
+    }
+
+    .response-box.success { border-color: var(--green); }
+    .response-box.error { border-color: var(--orange); }
+
+    .how-it-works {
+      background: linear-gradient(135deg, var(--surface) 0%, var(--surface-2) 100%);
+      border: 1px solid var(--border);
+      border-radius: 1rem;
+      padding: 2rem;
+      margin-bottom: 3rem;
+    }
+
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1.5rem;
+      margin-top: 1.5rem;
+    }
+
+    .step {
+      text-align: center;
+    }
+
+    .step-num {
+      width: 40px;
+      height: 40px;
+      background: var(--accent);
+      color: #fff;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      margin: 0 auto 1rem;
+    }
+
+    .step h4 {
+      font-size: 1rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .step p {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    footer {
+      text-align: center;
+      padding-top: 2rem;
+      border-top: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+
+    footer a {
+      color: var(--accent-2);
+      text-decoration: none;
+    }
+
+    footer a:hover {
+      text-decoration: underline;
+    }
+
+    .contract-info {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      background: var(--surface-2);
+      padding: 0.75rem 1rem;
+      border-radius: 0.5rem;
+      margin-top: 1rem;
+      word-break: break-all;
+    }
+
+    @media (max-width: 640px) {
+      h1 { font-size: 2rem; }
+      .container { padding: 2rem 1rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="badge">
+        <span>x402</span>
+        <span>•</span>
+        <span>Payment-Gated API</span>
+      </div>
+      <h1>Stacks Intelligence API</h1>
+      <p class="subtitle">Real-time blockchain data, price aggregation, and AI-powered market sentiment. Pay-per-call with STX.</p>
+    </header>
+
+    <div class="grid">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-icon">📊</div>
+          <h3>Price Aggregator</h3>
+        </div>
+        <p>Multi-source price data from 5+ exchanges including on-chain Pyth oracle verification.</p>
+        <div class="endpoint">
+          <span class="method get">GET</span>
+          <span>/prices?token=BTC</span>
+          <span class="free-tag">FREE</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-icon">🔮</div>
+          <h3>Oracle Data</h3>
+        </div>
+        <p>On-chain verified price data with latest block information and timestamps.</p>
+        <div class="endpoint">
+          <span class="method get">GET</span>
+          <span>/oracle</span>
+          <span class="price-tag">1000 μSTX</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-icon">🧠</div>
+          <h3>Sentiment Analysis</h3>
+        </div>
+        <p>AI-powered market sentiment with Fear & Greed integration and trading signals.</p>
+        <div class="endpoint">
+          <span class="method post">POST</span>
+          <span>/sentiment</span>
+          <span class="price-tag">1000 μSTX</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-icon">📈</div>
+          <h3>All Prices</h3>
+        </div>
+        <p>Complete price data for BTC, STX, ETH, SOL with spread analysis across all sources.</p>
+        <div class="endpoint">
+          <span class="method get">GET</span>
+          <span>/prices/all</span>
+          <span class="free-tag">FREE</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-section">
+      <h2 class="section-title">⚡ Try It Live</h2>
+      <div class="demo-controls">
+        <select id="endpoint-select">
+          <option value="/prices?token=BTC">GET /prices?token=BTC (Free)</option>
+          <option value="/prices?token=STX">GET /prices?token=STX (Free)</option>
+          <option value="/prices/all">GET /prices/all (Free)</option>
+          <option value="/stats">GET /stats (Free)</option>
+        </select>
+        <button onclick="tryEndpoint()">Send Request</button>
+      </div>
+      <div id="response" class="response-box">// Select an endpoint and click "Send Request"</div>
+    </div>
+
+    <div class="how-it-works">
+      <h2 class="section-title">🔐 How x402 Payment Works</h2>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <h4>Request</h4>
+          <p>Call a paid endpoint without payment header</p>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <h4>Pay</h4>
+          <p>Call the Clarity contract with STX</p>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <h4>Retry</h4>
+          <p>Add X-Payment header with txid</p>
+        </div>
+        <div class="step">
+          <div class="step-num">4</div>
+          <h4>Access</h4>
+          <p>Receive your data!</p>
+        </div>
+      </div>
+      <div class="contract-info">
+        <strong>Contract:</strong> SPP5ZMH9NQDFD2K5CEQZ6P02AP8YPWMQ75TJW20M.simple-oracle
+      </div>
+    </div>
+
+    <footer>
+      <p>Part of the <a href="https://pbtc21.dev">pbtc21.dev</a> ecosystem</p>
+      <p style="margin-top: 0.5rem;">Powered by Stacks • x402 Protocol</p>
+    </footer>
+  </div>
+
+  <script>
+    async function tryEndpoint() {
+      const select = document.getElementById('endpoint-select');
+      const response = document.getElementById('response');
+      const endpoint = select.value;
+
+      response.textContent = 'Loading...';
+      response.className = 'response-box';
+
+      try {
+        const res = await fetch(endpoint);
+        const data = await res.json();
+        response.textContent = JSON.stringify(data, null, 2);
+        response.className = 'response-box success';
+      } catch (err) {
+        response.textContent = 'Error: ' + err.message;
+        response.className = 'response-box error';
+      }
+    }
+  </script>
+</body>
+</html>`;
+}
+
+// Health check / Frontend
 app.get('/', (c) => {
+  const accept = c.req.header('Accept') || '';
+  if (accept.includes('text/html')) {
+    return c.html(getFrontendHtml());
+  }
   return c.json({
     name: 'stx402-endpoint',
     description: 'x402 payment-gated API endpoint on Stacks',
@@ -425,11 +871,11 @@ app.get('/stats', async (c) => {
 });
 
 // Token configuration for price sources
-const TOKEN_CONFIG: Record<string, { coingecko: string; binance: string; cryptocompare: string; pyth?: 'BTC' | 'STX' }> = {
-  BTC: { coingecko: 'bitcoin', binance: 'BTCUSDT', cryptocompare: 'BTC', pyth: 'BTC' },
-  STX: { coingecko: 'blockstack', binance: 'STXUSDT', cryptocompare: 'STX', pyth: 'STX' },
-  ETH: { coingecko: 'ethereum', binance: 'ETHUSDT', cryptocompare: 'ETH' },
-  SOL: { coingecko: 'solana', binance: 'SOLUSDT', cryptocompare: 'SOL' },
+const TOKEN_CONFIG: Record<string, { coingecko: string; kucoin: string; coinpaprika: string; pyth?: 'BTC' | 'STX' }> = {
+  BTC: { coingecko: 'bitcoin', kucoin: 'BTC-USDT', coinpaprika: 'btc-bitcoin', pyth: 'BTC' },
+  STX: { coingecko: 'blockstack', kucoin: 'STX-USDT', coinpaprika: 'stx-stacks', pyth: 'STX' },
+  ETH: { coingecko: 'ethereum', kucoin: 'ETH-USDT', coinpaprika: 'eth-ethereum' },
+  SOL: { coingecko: 'solana', kucoin: 'SOL-USDT', coinpaprika: 'sol-solana' },
 };
 
 // Fetch aggregated prices for a token
@@ -466,29 +912,30 @@ async function fetchTokenPrices(token: string) {
       }))
       .catch(e => ({ source: 'coingecko', type: 'aggregator', price: null, error: e.message })),
 
-    // Binance
-    fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${ids.binance}`)
+    // KuCoin
+    fetch(`https://api.kucoin.com/api/v1/market/orderbook/level1?symbol=${ids.kucoin}`)
       .then(r => r.json())
       .then((data: any) => ({
-        source: 'binance',
+        source: 'kucoin',
         type: 'exchange',
-        price: data.price ? parseFloat(data.price) : null,
-        timestamp: Date.now(),
-        error: data.code ? data.msg : null,
+        price: data.data?.price ? parseFloat(data.data.price) : null,
+        timestamp: data.data?.time ?? Date.now(),
+        error: data.code !== '200000' ? data.msg : null,
       }))
-      .catch(e => ({ source: 'binance', type: 'exchange', price: null, error: e.message })),
+      .catch(e => ({ source: 'kucoin', type: 'exchange', price: null, error: e.message })),
 
-    // CryptoCompare
-    fetch(`https://min-api.cryptocompare.com/data/price?fsym=${ids.cryptocompare}&tsyms=USD`)
+    // CoinPaprika
+    fetch(`https://api.coinpaprika.com/v1/tickers/${ids.coinpaprika}`)
       .then(r => r.json())
       .then((data: any) => ({
-        source: 'cryptocompare',
+        source: 'coinpaprika',
         type: 'aggregator',
-        price: data.USD ?? null,
-        timestamp: Date.now(),
-        error: data.Message || null,
+        price: data.quotes?.USD?.price ?? null,
+        change_24h: data.quotes?.USD?.percent_change_24h ?? null,
+        timestamp: data.last_updated ? new Date(data.last_updated).getTime() : Date.now(),
+        error: data.error ?? null,
       }))
-      .catch(e => ({ source: 'cryptocompare', type: 'aggregator', price: null, error: e.message })),
+      .catch(e => ({ source: 'coinpaprika', type: 'aggregator', price: null, error: e.message })),
 
     // Kraken
     fetch(`https://api.kraken.com/0/public/Ticker?pair=${token}USD`)
@@ -608,29 +1055,30 @@ app.get('/prices/all', async (c) => {
         }))
         .catch(e => ({ source: 'coingecko', type: 'aggregator', price: null, error: e.message })),
 
-      // Binance
-      fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${ids.binance}`)
+      // KuCoin
+      fetch(`https://api.kucoin.com/api/v1/market/orderbook/level1?symbol=${ids.kucoin}`)
         .then(r => r.json())
         .then((data: any) => ({
-          source: 'binance',
+          source: 'kucoin',
           type: 'exchange',
-          price: data.price ? parseFloat(data.price) : null,
-          timestamp: Date.now(),
-          error: data.code ? data.msg : null,
+          price: data.data?.price ? parseFloat(data.data.price) : null,
+          timestamp: data.data?.time ?? Date.now(),
+          error: data.code !== '200000' ? data.msg : null,
         }))
-        .catch(e => ({ source: 'binance', type: 'exchange', price: null, error: e.message })),
+        .catch(e => ({ source: 'kucoin', type: 'exchange', price: null, error: e.message })),
 
-      // CryptoCompare
-      fetch(`https://min-api.cryptocompare.com/data/price?fsym=${ids.cryptocompare}&tsyms=USD`)
+      // CoinPaprika
+      fetch(`https://api.coinpaprika.com/v1/tickers/${ids.coinpaprika}`)
         .then(r => r.json())
         .then((data: any) => ({
-          source: 'cryptocompare',
+          source: 'coinpaprika',
           type: 'aggregator',
-          price: data.USD ?? null,
-          timestamp: Date.now(),
-          error: data.Message || null,
+          price: data.quotes?.USD?.price ?? null,
+          change_24h: data.quotes?.USD?.percent_change_24h ?? null,
+          timestamp: data.last_updated ? new Date(data.last_updated).getTime() : Date.now(),
+          error: data.error ?? null,
         }))
-        .catch(e => ({ source: 'cryptocompare', type: 'aggregator', price: null, error: e.message })),
+        .catch(e => ({ source: 'coinpaprika', type: 'aggregator', price: null, error: e.message })),
 
       // Kraken
       fetch(`https://api.kraken.com/0/public/Ticker?pair=${token}USD`)
