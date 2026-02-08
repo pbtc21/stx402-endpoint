@@ -6,8 +6,24 @@ const CONTRACT = {
   address: 'SPP5ZMH9NQDFD2K5CEQZ6P02AP8YPWMQ75TJW20M',
   name: 'simple-oracle',
   price: 1000, // microSTX
-  recipient: 'SPP5ZMH9NQDFD2K5CEQZ6P02AP8YPWMQ75TJW20M',
+  priceSbtc: 1, // 1 sat (roughly equivalent)
+  recipient: 'SPKH9AWG0ENZ87J1X0PBD4HETP22G8W22AFNVF8K',
 };
+
+// sBTC contract
+const SBTC_CONTRACT = {
+  address: 'SP3K8BC0PPEVCV7NZ6QSRWPQ2JE9E5B6N3PA0KBR9',
+  name: 'token-sbtc',
+};
+
+type PaymentTokenType = 'STX' | 'sBTC';
+
+function getPaymentTokenType(c: any): PaymentTokenType {
+  const queryToken = c.req.query('tokenType');
+  const headerToken = c.req.header('X-PAYMENT-TOKEN-TYPE');
+  const tokenStr = (headerToken || queryToken || 'STX').toUpperCase();
+  return tokenStr === 'SBTC' ? 'sBTC' : 'STX';
+}
 
 const HIRO_API = 'https://api.hiro.so';
 
@@ -489,30 +505,54 @@ app.get('/', (c) => {
   });
 });
 
-// x402 Payment Required response
+// x402 Payment Required response (supports STX and sBTC)
 function paymentRequired(c: any, resource: string) {
   const nonce = crypto.randomUUID();
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 min
+  const tokenType = getPaymentTokenType(c);
 
-  return c.json({
+  const baseResponse = {
     error: 'Payment Required',
     code: 'PAYMENT_REQUIRED',
     resource,
+    nonce,
+    expiresAt,
+    network: 'mainnet',
+  };
+
+  if (tokenType === 'sBTC') {
+    return c.json({
+      ...baseResponse,
+      maxAmountRequired: CONTRACT.priceSbtc.toString(),
+      payTo: CONTRACT.recipient,
+      tokenType: 'sBTC',
+      tokenContract: SBTC_CONTRACT,
+      instructions: [
+        '1. Sign an sBTC transfer transaction',
+        '2. Include the signed transaction hex in X-Payment header',
+        '3. Transaction will be broadcast and verified',
+      ],
+    }, 402);
+  }
+
+  return c.json({
+    ...baseResponse,
     payment: {
       contract: `${CONTRACT.address}.${CONTRACT.name}`,
       function: 'call-with-stx',
       price: CONTRACT.price,
       token: 'STX',
       recipient: CONTRACT.recipient,
-      network: 'mainnet',
+    },
+    paymentOptions: {
+      stx: { price: CONTRACT.price, method: 'contract-call' },
+      sbtc: { price: CONTRACT.priceSbtc, method: 'direct-transfer', tokenContract: SBTC_CONTRACT },
     },
     instructions: [
-      '1. Call the contract function with STX payment',
+      '1. Call the contract function with STX payment (or use ?tokenType=sBTC for sBTC)',
       '2. Wait for transaction confirmation',
       '3. Retry request with X-Payment header containing txid',
     ],
-    nonce,
-    expiresAt,
   }, 402);
 }
 
