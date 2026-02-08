@@ -686,12 +686,59 @@ async function getContractStats() {
   return data;
 }
 
+// x402 Discovery format for oracle endpoint
+function getOracleDiscovery() {
+  return {
+    x402Version: 1,
+    name: 'x402 Intelligence API - Oracle Data',
+    accepts: [{
+      scheme: 'exact',
+      network: 'stacks',
+      maxAmountRequired: CONTRACT.price.toString(),
+      resource: '/oracle',
+      description: 'On-chain verified price data with latest block information and timestamps',
+      mimeType: 'application/json',
+      payTo: CONTRACT.recipient,
+      maxTimeoutSeconds: 300,
+      asset: 'STX',
+      extra: {
+        contract: `${CONTRACT.address}.${CONTRACT.name}`,
+        function: 'call-with-stx',
+      },
+      outputSchema: {
+        input: {
+          type: 'object',
+          properties: {
+            'X-Payment': { type: 'string', description: 'Transaction ID of payment' },
+          },
+          required: ['X-Payment'],
+        },
+        output: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            data: {
+              type: 'object',
+              properties: {
+                prices: { type: 'object' },
+                stacks: { type: 'object' },
+                timestamp: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+    }],
+  };
+}
+
 // Oracle endpoint - returns blockchain data
 app.get('/oracle', async (c) => {
   const paymentTxid = c.req.header('X-Payment');
 
+  // Return x402 discovery format when no payment
   if (!paymentTxid) {
-    return paymentRequired(c, '/oracle');
+    return c.json(getOracleDiscovery());
   }
 
   // Verify payment
@@ -737,7 +784,61 @@ app.get('/oracle', async (c) => {
   });
 });
 
-// Sentiment analyzer endpoint
+// x402 Discovery format for sentiment endpoint
+function getSentimentDiscovery() {
+  return {
+    x402Version: 1,
+    name: 'x402 Intelligence API - Sentiment Analysis',
+    accepts: [{
+      scheme: 'exact',
+      network: 'stacks',
+      maxAmountRequired: CONTRACT.price.toString(),
+      resource: '/sentiment',
+      description: 'AI-powered market sentiment analysis with Fear & Greed integration',
+      mimeType: 'application/json',
+      payTo: CONTRACT.recipient,
+      maxTimeoutSeconds: 300,
+      asset: 'STX',
+      extra: {
+        contract: `${CONTRACT.address}.${CONTRACT.name}`,
+        function: 'call-with-stx',
+        method: 'POST',
+      },
+      outputSchema: {
+        input: {
+          type: 'object',
+          properties: {
+            'X-Payment': { type: 'string', description: 'Transaction ID of payment' },
+            token: { type: 'string', description: 'Token to analyze', default: 'STX' },
+          },
+          required: ['X-Payment'],
+        },
+        output: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            data: {
+              type: 'object',
+              properties: {
+                token: { type: 'string' },
+                sentiment: { type: 'string' },
+                score: { type: 'number' },
+                signals: { type: 'array' },
+              },
+            },
+          },
+        },
+      },
+    }],
+  };
+}
+
+// x402 Discovery for /sentiment (GET returns discovery info)
+app.get('/sentiment', (c) => {
+  return c.json(getSentimentDiscovery());
+});
+
+// Sentiment analyzer endpoint (POST with payment)
 app.post('/sentiment', async (c) => {
   const paymentTxid = c.req.header('X-Payment');
 
@@ -907,6 +1008,212 @@ app.get('/stats', async (c) => {
   return c.json({
     contract: `${CONTRACT.address}.${CONTRACT.name}`,
     stats,
+  });
+});
+
+// x402 Discovery - Root discovery endpoint
+app.get('/.well-known/x402', (c) => {
+  return c.json({
+    x402Version: 1,
+    name: 'x402 Intelligence API',
+    description: 'Real-time blockchain data, price aggregation, and AI-powered market sentiment on Stacks',
+    accepts: [
+      {
+        scheme: 'exact',
+        network: 'stacks',
+        maxAmountRequired: CONTRACT.price.toString(),
+        resource: '/oracle',
+        description: 'On-chain verified price data with latest block information and timestamps',
+        mimeType: 'application/json',
+        payTo: CONTRACT.recipient,
+        maxTimeoutSeconds: 300,
+        asset: 'STX',
+        extra: {
+          contract: `${CONTRACT.address}.${CONTRACT.name}`,
+          function: 'call-with-stx',
+        },
+        outputSchema: {
+          input: {
+            type: 'object',
+            properties: {
+              'X-Payment': { type: 'string', description: 'Transaction ID of payment' },
+            },
+            required: ['X-Payment'],
+          },
+          output: {
+            type: 'object',
+            properties: {
+              success: { type: 'boolean' },
+              paymentVerified: { type: 'boolean' },
+              caller: { type: 'string' },
+              data: {
+                type: 'object',
+                properties: {
+                  prices: {
+                    type: 'object',
+                    properties: {
+                      btc_usd: { type: 'number' },
+                      stx_usd: { type: 'number' },
+                    },
+                  },
+                  stacks: {
+                    type: 'object',
+                    properties: {
+                      block_height: { type: 'number' },
+                      block_hash: { type: 'string' },
+                      block_time: { type: 'number' },
+                    },
+                  },
+                  timestamp: { type: 'string', format: 'date-time' },
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        scheme: 'exact',
+        network: 'stacks',
+        maxAmountRequired: CONTRACT.price.toString(),
+        resource: '/sentiment',
+        description: 'AI-powered market sentiment analysis with Fear & Greed integration',
+        mimeType: 'application/json',
+        payTo: CONTRACT.recipient,
+        maxTimeoutSeconds: 300,
+        asset: 'STX',
+        extra: {
+          contract: `${CONTRACT.address}.${CONTRACT.name}`,
+          function: 'call-with-stx',
+          method: 'POST',
+        },
+        outputSchema: {
+          input: {
+            type: 'object',
+            properties: {
+              'X-Payment': { type: 'string', description: 'Transaction ID of payment' },
+              token: { type: 'string', description: 'Token to analyze (BTC, STX, ETH, SOL)', default: 'STX' },
+            },
+            required: ['X-Payment'],
+          },
+          output: {
+            type: 'object',
+            properties: {
+              success: { type: 'boolean' },
+              paymentVerified: { type: 'boolean' },
+              caller: { type: 'string' },
+              data: {
+                type: 'object',
+                properties: {
+                  token: { type: 'string' },
+                  sentiment: { type: 'string', enum: ['very_bearish', 'bearish', 'neutral', 'bullish', 'very_bullish'] },
+                  score: { type: 'number', minimum: 0, maximum: 100 },
+                  confidence: { type: 'number', minimum: 0, maximum: 1 },
+                  analysis: { type: 'object' },
+                  signals: { type: 'array', items: { type: 'string' } },
+                  method: { type: 'string', enum: ['algorithmic', 'ai'] },
+                  timestamp: { type: 'string', format: 'date-time' },
+                },
+              },
+            },
+          },
+        },
+      },
+    ],
+  });
+});
+
+// x402 Discovery - Per-resource discovery for /oracle
+app.get('/oracle/.well-known/x402', (c) => {
+  return c.json({
+    x402Version: 1,
+    name: 'Oracle Data',
+    accepts: [{
+      scheme: 'exact',
+      network: 'stacks',
+      maxAmountRequired: CONTRACT.price.toString(),
+      resource: '/oracle',
+      description: 'On-chain verified price data with latest block information and timestamps',
+      mimeType: 'application/json',
+      payTo: CONTRACT.recipient,
+      maxTimeoutSeconds: 300,
+      asset: 'STX',
+      extra: {
+        contract: `${CONTRACT.address}.${CONTRACT.name}`,
+        function: 'call-with-stx',
+      },
+      outputSchema: {
+        input: {
+          type: 'object',
+          properties: {
+            'X-Payment': { type: 'string', description: 'Transaction ID of payment' },
+          },
+          required: ['X-Payment'],
+        },
+        output: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            data: {
+              type: 'object',
+              properties: {
+                prices: { type: 'object' },
+                stacks: { type: 'object' },
+                timestamp: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+    }],
+  });
+});
+
+// x402 Discovery - Per-resource discovery for /sentiment
+app.get('/sentiment/.well-known/x402', (c) => {
+  return c.json({
+    x402Version: 1,
+    name: 'Sentiment Analysis',
+    accepts: [{
+      scheme: 'exact',
+      network: 'stacks',
+      maxAmountRequired: CONTRACT.price.toString(),
+      resource: '/sentiment',
+      description: 'AI-powered market sentiment analysis with Fear & Greed integration',
+      mimeType: 'application/json',
+      payTo: CONTRACT.recipient,
+      maxTimeoutSeconds: 300,
+      asset: 'STX',
+      extra: {
+        contract: `${CONTRACT.address}.${CONTRACT.name}`,
+        function: 'call-with-stx',
+        method: 'POST',
+      },
+      outputSchema: {
+        input: {
+          type: 'object',
+          properties: {
+            'X-Payment': { type: 'string', description: 'Transaction ID of payment' },
+            token: { type: 'string', description: 'Token to analyze', default: 'STX' },
+          },
+          required: ['X-Payment'],
+        },
+        output: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            data: {
+              type: 'object',
+              properties: {
+                token: { type: 'string' },
+                sentiment: { type: 'string' },
+                score: { type: 'number' },
+                signals: { type: 'array' },
+              },
+            },
+          },
+        },
+      },
+    }],
   });
 });
 
